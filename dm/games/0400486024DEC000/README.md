@@ -70,6 +70,7 @@ With the HDR output setting, on the Mac app to the opening movie (M4 Pro, macOS 
 - Like [Donkey Kong Bananza](../040074A01BF12000/README.md#hdr-output), the game boots an RGBA8 window (format 0x25, 2560x1440), queries `vi::QueryDisplayHdrStatus`, then makes an RGB10A2 window (0x3d). It asks every frame (1,000 queries in 38 s) and queries the paper white (203 nits).
 - It declares SDR 0 to 203 nits and extended 0 to 710, gamut 0 and tone mapping 0. No new `[RED]` line with HDR on.
 - On an LG HDR 4K monitor with HDR off in macOS (potential headroom 1.00), `DM_HDR=1` answered SDR and the game kept its RGBA8 window. `DM_HDR=2` (HDR on any screen) made it switch. Not run on a screen with EDR, and the picture was not compared between the modes.
+- Fullscreen on a MacBook Pro M4 Pro (macOS 27.2, built-in screen, 2026-11-07; the oot2 fork with this HDR output): with the menu bar hidden, rectangles of older frames flickered over play and the opening movie looked like its frames were out of order, until the present waited for the GPU ([A fullscreen HDR layer shows rectangles of older frames](../../../docs/reference/rendering.md#a-fullscreen-hdr-layer-shows-rectangles-of-older-frames)). Fine since, with ProMotion and at a fixed 60 Hz.
 
 ## Open
 
@@ -105,6 +106,7 @@ With the HDR output setting, on the Mac app to the opening movie (M4 Pro, macOS 
 - [A texture in a sparse pool came out CPU-written at its first use](../../../docs/reference/memory.md#a-texture-in-a-sparse-pool-came-out-cpu-written-at-its-first-use): found by the unit test, on this profile's `tex_dirty_upload`.
 - [Textures made for GPU use kept from their CPU rewrites](../../../docs/reference/nvn-objects.md#textures-made-for-gpu-use-kept-from-their-cpu-rewrites): the terrain tiles' height, blend and hole maps rewritten as tile slots are reused; flat blue holes in the ground after an hour of play.
 - [The status query and the present for an HDR window](../../../docs/reference/rendering.md#the-status-query-and-the-present-for-an-hdr-window): the same HDR window as Donkey Kong Bananza.
+- [A fullscreen HDR layer shows rectangles of older frames](../../../docs/reference/rendering.md#a-fullscreen-hdr-layer-shows-rectangles-of-older-frames): with the menu bar hidden on a MacBook Pro.
 - [`EventFd` needs no network](../../../docs/reference/services.md#eventfd-needs-no-network)
 - [No virtual audio input devices (SDK 22)](../../../docs/reference/audio.md#no-virtual-audio-input-devices-sdk-22)
 - [`nn::ndve`'s movie enhancement file](../../../docs/reference/shaders.md#nnndves-movie-enhancement-file)
