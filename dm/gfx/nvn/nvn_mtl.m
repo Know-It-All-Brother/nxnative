@@ -14470,17 +14470,22 @@ static void present_shown_note(double shown, double call, double target, CAMetal
     }
     pthread_mutex_unlock(&mu);
 }
-// DM_PRESENT_AFTER_GPU: hand the drawable to the system only once the display command buffer has completed on the GPU, not right after signalDrawable.
-// Default on the Mac for an extended-range (HDR) layer, off otherwise and on iOS; 0 / 1 force it. A workaround: on a MacBook Pro M4 Pro (macOS 27.2) a fullscreen PQ layer
-// with HDR10 metadata showed rectangles of older frames whenever nothing covered it, and a standalone app with the same present reproduced it; why the system shows a
-// signalled drawable's older contents is open (docs/reference/rendering.md, "A fullscreen HDR layer shows rectangles of older frames")
+// DM_PRESENT_AFTER_GPU: hand the drawable to the system only once the display command buffer has completed on the GPU, and without Metal 4's signalDrawable.
+// Default on the Mac for an extended-range (HDR) layer in fullscreen, off otherwise and on iOS; 0 / 1 force it. In a window the system composites the layer, the fault does
+// not show, and presenting after the GPU made frames reach the screen about 5 ms later (Ocarina of Time). A workaround for an open, likely macOS, fault: on a MacBook Pro M4 Pro
+// (macOS 27.2) a fullscreen PQ layer with HDR10 metadata and nothing over it showed rectangles of older frames with Apple's documented Metal 4 order (waitForDrawable,
+// commit, signalDrawable, present), though every present pass ended 3-32 ms before its refresh: a present before the pass has run shows unfinished contents, signal or
+// not. Presenting after completion fixes that, but with signalDrawable the frame then often reached the screen a refresh late; without it, on time. Skipping
+// signalDrawable is not what Apple documents (MTL4CommandQueue.h: the caller is responsible for signalDrawable after the last commit that writes the drawable and before
+// present); DM_PRESENT_AFTER_GPU=0 restores Apple's order if a macOS release changes this (docs/reference/rendering.md, "A fullscreen HDR layer shows rectangles of older frames")
 #if !TARGET_OS_SIMULATOR
+int front_fullscreen(void);   // front_mac.m (weak stand-in below)
 static int present_after_gpu(CAMetalLayer *layer) {
     static int env = -2, was = -1;
     if (env == -2) { const char *e = getenv("DM_PRESENT_AFTER_GPU"); env = e && *e ? atoi(e) != 0 : -1; }
-    int on = env >= 0 ? env : TARGET_OS_OSX && layer.wantsExtendedDynamicRangeContent;
-    if (on != was) { was = on; MLOG("present: the drawable goes to the system %s (DM_PRESENT_AFTER_GPU%s)", on ? "after its GPU work completes" : "right after signalDrawable",
-                                    env >= 0 ? "" : on ? " unset: on for the Mac's HDR layer" : " unset: off"); }
+    int on = env >= 0 ? env : TARGET_OS_OSX && layer.wantsExtendedDynamicRangeContent && front_fullscreen();
+    if (on != was) { was = on; MLOG("present: the drawable goes to the system %s (DM_PRESENT_AFTER_GPU%s)", on ? "after its GPU work completes, without signalDrawable" : "right after signalDrawable",
+                                    env >= 0 ? "" : on ? " unset: on for the Mac's HDR layer in fullscreen" : " unset: off"); }
     return on;
 }
 #endif
@@ -14567,13 +14572,13 @@ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t t
     if (!kind) { [cb endCommandBuffer]; [g_q4 signalDrawable:dr]; return 0; }
     int fx_kind = kind == PRESENT_METALFX;
     [cb endCommandBuffer];
-    // The drawable's hand-over to the system: right after signalDrawable, or with DM_PRESENT_AFTER_GPU only once the display command buffer has completed (present_after_gpu)
+    // The drawable's hand-over to the system: right after signalDrawable, or with DM_PRESENT_AFTER_GPU only once the display command buffer has completed, without signalDrawable (present_after_gpu)
 #if TARGET_OS_SIMULATOR   // The iOS simulator SDK has no presentation-time callback and no minimum display duration (used only for picture acceptance, display-link ticks are not counted)
     int late = 0;
     dispatch_block_t show = ^{ (void)period; [dr present]; };
 #else
     int late = present_after_gpu(layer);
-    double shown_call = CACurrentMediaTime(), shown_target = target_ts;   // DM_PRESENT_SHOWN: when the frame was handed to the system, and the display-link tick it was meant for
+    __block double shown_call = CACurrentMediaTime(); double shown_target = target_ts;   // DM_PRESENT_SHOWN: when the frame was handed to the system (set again by show), and the display-link tick it was meant for
     uint64_t pn = ticket;   // Record the present time by the game's present sequence number (ticket number): hle's present statistics are taken by "the game's nth present"; in the display link path the actual present count != the game's present count (old frames get merged and dropped)
     [dr addPresentedHandler:^(id<MTLDrawable> d) {   // Actual presentation time (the time this frame is really put on screen, CACurrentMediaTime base)
         CFTimeInterval tt = d.presentedTime;
@@ -14582,11 +14587,13 @@ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t t
     }];
     // Each frame is displayed for at least one present period: when the GPU completion time jitters around a 120 Hz refresh boundary, the paired "25 ms + 8.33 ms" stutter no longer appears
     dispatch_block_t show = ^{
+        shown_call = CACurrentMediaTime();
         if (target_ts > 0) [dr present];
         else if (period > 0) [dr presentAfterMinimumDuration:period]; else [dr present];
     };
 #endif
-    // Late: whichever of signalDrawable (this thread) and the GPU completion (feedback handler) comes second presents, so the drawable is never presented before it is signalled
+    // Late: the feedback handler presents once the GPU has completed the pass; the count of 2 also orders that present after this thread's last use of the frame below.
+    // The presents keep the frames' order as long as the feedback handlers come in commit order: observed (none out of order in tens of thousands of presents), not documented
     _Atomic int *need = late ? malloc(sizeof *need) : NULL;
     if (need) atomic_init(need, 2);
     MTL4CommitOptions *o = [MTL4CommitOptions new];
@@ -14614,7 +14621,7 @@ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t t
                  (unsigned long long)g_link_dropped, a[149], a[0], b[149], b[0], b[299]);
         }
     }
-    [g_q4 signalDrawable:dr];
+    if (!need) [g_q4 signalDrawable:dr];   // late: no signalDrawable, which made the completed frame a refresh late on the fullscreen HDR layer (present_after_gpu)
     g_present_alloc_fence[alloc_i] = ticket;
     if (!need) show();
     else if (atomic_fetch_sub(need, 1) == 1) { free(need); show(); }
