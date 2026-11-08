@@ -14470,6 +14470,20 @@ static void present_shown_note(double shown, double call, double target, CAMetal
     }
     pthread_mutex_unlock(&mu);
 }
+// DM_PRESENT_AFTER_GPU: hand the drawable to the system only once the display command buffer has completed on the GPU, not right after signalDrawable.
+// Default on the Mac for an extended-range (HDR) layer, off otherwise and on iOS; 0 / 1 force it. A workaround: on a MacBook Pro M4 Pro (macOS 27.2) a fullscreen PQ layer
+// with HDR10 metadata showed rectangles of older frames whenever nothing covered it, and a standalone app with the same present reproduced it; why the system shows a
+// signalled drawable's older contents is open (docs/reference/rendering.md, "A fullscreen HDR layer shows rectangles of older frames")
+#if !TARGET_OS_SIMULATOR
+static int present_after_gpu(CAMetalLayer *layer) {
+    static int env = -2, was = -1;
+    if (env == -2) { const char *e = getenv("DM_PRESENT_AFTER_GPU"); env = e && *e ? atoi(e) != 0 : -1; }
+    int on = env >= 0 ? env : TARGET_OS_OSX && layer.wantsExtendedDynamicRangeContent;
+    if (on != was) { was = on; MLOG("present: the drawable goes to the system %s (DM_PRESENT_AFTER_GPU%s)", on ? "after its GPU work completes" : "right after signalDrawable",
+                                    env >= 0 ? "" : on ? " unset: on for the Mac's HDR layer" : " unset: off"); }
+    return on;
+}
+#endif
 static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t ticket, const int crop[4], id<CAMetalDrawable> supplied, double target_ts) {
     if (g_present_stall_ns) { struct timespec ts = {0, (long)g_present_stall_ns}; nanosleep(&ts, NULL); }
     g_present_n++;
@@ -14553,9 +14567,32 @@ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t t
     if (!kind) { [cb endCommandBuffer]; [g_q4 signalDrawable:dr]; return 0; }
     int fx_kind = kind == PRESENT_METALFX;
     [cb endCommandBuffer];
+    // The drawable's hand-over to the system: right after signalDrawable, or with DM_PRESENT_AFTER_GPU only once the display command buffer has completed (present_after_gpu)
+#if TARGET_OS_SIMULATOR   // The iOS simulator SDK has no presentation-time callback and no minimum display duration (used only for picture acceptance, display-link ticks are not counted)
+    int late = 0;
+    dispatch_block_t show = ^{ (void)period; [dr present]; };
+#else
+    int late = present_after_gpu(layer);
+    double shown_call = CACurrentMediaTime(), shown_target = target_ts;   // DM_PRESENT_SHOWN: when the frame was handed to the system, and the display-link tick it was meant for
+    uint64_t pn = ticket;   // Record the present time by the game's present sequence number (ticket number): hle's present statistics are taken by "the game's nth present"; in the display link path the actual present count != the game's present count (old frames get merged and dropped)
+    [dr addPresentedHandler:^(id<MTLDrawable> d) {   // Actual presentation time (the time this frame is really put on screen, CACurrentMediaTime base)
+        CFTimeInterval tt = d.presentedTime;
+        g_pres[pn % PRING] = (pres_ent){pn, tt > 0 ? tt : -1};
+        if (present_shown_on()) present_shown_note(tt, shown_call, shown_target, layer);
+    }];
+    // Each frame is displayed for at least one present period: when the GPU completion time jitters around a 120 Hz refresh boundary, the paired "25 ms + 8.33 ms" stutter no longer appears
+    dispatch_block_t show = ^{
+        if (target_ts > 0) [dr present];
+        else if (period > 0) [dr presentAfterMinimumDuration:period]; else [dr present];
+    };
+#endif
+    // Late: whichever of signalDrawable (this thread) and the GPU completion (feedback handler) comes second presents, so the drawable is never presented before it is signalled
+    _Atomic int *need = late ? malloc(sizeof *need) : NULL;
+    if (need) atomic_init(need, 2);
     MTL4CommitOptions *o = [MTL4CommitOptions new];
     [o addFeedbackHandler:^(id<MTL4CommitFeedback> f) {
         if (f.error) { MLOG("[RED] display command buffer error: %s", f.error.description.UTF8String); gpu_lost_check(f.error, "display"); }
+        if (need && atomic_fetch_sub(need, 1) == 1) { free(need); show(); }
         pthread_mutex_lock(&g_pq_mu); if (ticket > g_pq_done) g_pq_done = ticket; if (ticket > g_present_alloc_done[alloc_i]) g_present_alloc_done[alloc_i] = ticket; g_pq_inflight--; pthread_cond_broadcast(&g_pq_cv);
         present_gpu_note(f.GPUEndTime - f.GPUStartTime, fx_kind); pthread_mutex_unlock(&g_pq_mu);
     }];
@@ -14579,20 +14616,8 @@ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t t
     }
     [g_q4 signalDrawable:dr];
     g_present_alloc_fence[alloc_i] = ticket;
-#if TARGET_OS_SIMULATOR   // The iOS simulator SDK has no presentation-time callback and no minimum display duration (used only for picture acceptance, display-link ticks are not counted)
-    (void)period; [dr present];
-#else
-    double shown_call = CACurrentMediaTime(), shown_target = target_ts;   // DM_PRESENT_SHOWN: when the frame was handed to the system, and the display-link tick it was meant for
-    uint64_t pn = ticket;   // Record the present time by the game's present sequence number (ticket number): hle's present statistics are taken by "the game's nth present"; in the display link path the actual present count != the game's present count (old frames get merged and dropped)
-    [dr addPresentedHandler:^(id<MTLDrawable> d) {   // Actual presentation time (the time this frame is really put on screen, CACurrentMediaTime base)
-        CFTimeInterval tt = d.presentedTime;
-        g_pres[pn % PRING] = (pres_ent){pn, tt > 0 ? tt : -1};
-        if (present_shown_on()) present_shown_note(tt, shown_call, shown_target, layer);
-    }];
-    // Each frame is displayed for at least one present period: when the GPU completion time jitters around a 120 Hz refresh boundary, the paired "25 ms + 8.33 ms" stutter no longer appears
-    if (target_ts > 0) [dr present];
-    else if (period > 0) [dr presentAfterMinimumDuration:period]; else [dr present];
-#endif
+    if (!need) show();
+    else if (atomic_fetch_sub(need, 1) == 1) { free(need); show(); }
     (void)frame;
     return 1;
 }
