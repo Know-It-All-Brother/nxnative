@@ -85,3 +85,30 @@ BINDING = [
      'why': "the game's own dynamic-resolution level function and update, found by their functions' fingerprints on any build that keeps both; switchable (DM_DYNAMIC_RESOLUTION)",
      'checked': 'v131072 main: one function with each fingerprint (the level function a leaf, x2..x11 / x16 / x17 / s0..s2 free), its callers, the update and the controller fields read by disassembly, the fields read in play (2026-11-08); the climb run natively against a model of the update and in play to full size (2026-11-09)'},
 ]
+
+# PR #1663's experimental fractional timing (adapted from upstream PR1543), kept opt-in for the best-attempt integration: state +0x40 simulation FPS override (zero keeps the
+# native step), +0x38 elapsed seconds. It replaces the frame_step / dynamic_resolution stubs above (both use the division site and +0x40), so it is registered only when the
+# rewrite runs with DM_OOT_FRACTIONAL=1; the host then reads FPS_FRACTIONAL from the fixups and DM_FPS_TARGET=120 selects the high rate. Default: off (main's host step).
+import os as _os
+from nso_asm import ADRP as _ADRP, B as _B
+def real_speed(ctx):
+    ctx.fractional = 1
+    here, emit = ctx.here, ctx.emit
+    ctx.site(0x6e6cc4, '2818201e')
+    start = here()
+    emit(0x1e201828)                 # fdiv s8,s1,s0: native fallback
+    emit(_ADRP(16, here(), ctx.state))
+    emit(0x52800051)                 # mov w17,#2: fractional contract
+    emit(0xb9003e11)                 # str w17,[x16,#0x3c]
+    emit(0xb9404211)                 # ldr w17,[x16,#0x40]: validated positive float bits or zero
+    emit(0x34000071)                 # cbz w17,+12: native fallback, preserves NZCV
+    emit(0x1e270220)                 # fmov s0,w17
+    emit(0x1e201828)                 # fdiv s8,s1,s0: requested simulation step
+    emit(0xbd403a00)                 # ldr s0,[x16,#0x38]: elapsed seconds
+    emit(0x1e210800)                 # fmul s0,s0,s1
+    emit(0x1e204908)                 # fmax s8,s8,s0: correct late frames
+    emit(_B(here(), 0x6e6cc8))
+    ctx.put(0x6e6cc4, [_B(0x6e6cc4, start)], 'EXPERIMENT: fractional simulation step without modifying native rendering budget')
+
+if _os.environ.get('DM_OOT_FRACTIONAL') == '1':
+    FRAME_STEP = {'e0f3ccfaf50065ae4ea01eb5aeb13b1a': real_speed}
