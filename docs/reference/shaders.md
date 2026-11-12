@@ -1755,6 +1755,13 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
 - **Cause:** the Ampere opcode table had no entry for IDP (opcode 0x026 in its low 9 bits, so 0x226 with a register B, 0x426 with an immediate and so on).
 - **Fix:** `InstEmitAmpereAlu.cs`'s `AIdp` adds c to the products of a's parts and b's bytes, in 32 bits with wraparound, with integer IR operations (a sign- or zero-extending field extract per part, a multiply and an add per product). Bit 73 says a's parts are signed and bit 74 b's bytes; bit 76 picks `.2A`, where a's two 16-bit halves multiply b's bytes 0 and 1, or with bit 77 (`.HI`) bytes 2 and 3; without it `.4A` multiplies the four bytes of each. A `.4A` costs four extracts of each source, four multiplies and four adds; a `.2A` half that.
 - **Check:** `test_dmsh_ampere_orin.py`'s `dp4a_u32`, `dp4a_s32`, `dp4a_su`, `dp2a_lo` and `dp2a_hi` (IDP.4A.U8.U8, .S8.S8, .S8.U8, IDP.2A.LO.S16.S8 and .2A.HI.U16.U8): the translator refused all five before, and now all 1,024 lanes of each match the Orin.
+
+### VABSDIFF, the absolute difference with an add
+
+- **Symptom:** a Switch 2 shader that uses PTX's `sad` (sum of absolute differences, `|a - b| + c`) fails to translate: `Ampere instruction 214 ... is not implemented`.
+- **Cause:** the GPU compiler turns `sad.u32` into `VABSDIFF.U32 Rd, a, b, c` (opcode 0x214), and the Ampere opcode table had no entry for VABSDIFF in any form.
+- **Fix:** `InstEmitAmpereAlu.cs` emits it as `max(a, b) - min(a, b) + c` wrapping at 32 bits, comparing a and b unsigned when bit 73 is clear (`.U32`, as IMNMX) and signed when it's set, and registers it for every ALU form (0x?14: register, immediate, constant buffer and uniform register), whose operands the shared reader takes. A predicate output other than PT or any other modifier bit fails the translation, since we haven't seen one. It costs one `min`, one `max`, a subtraction and an add.
+- **Check:** `test_dmsh_ampere_orin.py`'s `isad` (`sad.u32`): translation failed before, 0 of 1,024 lanes differ now.
 - **Found on:** no game; a Jetson Orin's results ([Ampere instructions checked against an Ampere GPU](#ampere-instructions-checked-against-an-ampere-gpu)).
 
 ### The NDVE movie network by the host
