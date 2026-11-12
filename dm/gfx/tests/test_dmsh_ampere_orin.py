@@ -36,56 +36,18 @@ import compare  # noqa: E402
 KNOWN = {
     # results that differ
     'i2f_s32_rz': 'I2FP.F32.S32.RZ rounds to nearest (PR #1800 has the fix)',
-    'i2f_f16_rz': 'I2F to F16 with .RZ / .RM / .RP rounds to nearest (PR #1800 has the fix)', 'i2f_f16_rm': '(as i2f_f16_rz)', 'i2f_f16_rp': '(as i2f_f16_rz)',
-    'i2f_f16_u32_rz': '(as i2f_f16_rz)', 'f2fp_pack_f16x2_rz': 'F2FP.PACK_AB.RZ rounds to nearest (PR #1800 has the fix)',
-    'shfl_up_clamp': 'SHFL.UP ignores a non-zero clamp (PR #1800 has the fix)',
     'fmax_nan': 'FMNMX.NAN: a NaN operand gives the other operand, not NaN (PR #1800 has the fix)', 'fmin_nan': '(as fmax_nan)',
-    'shfl_idx': 'SHFL: a lane in a register is not masked to its low 5 bits', 'shfl_bfly': '(as shfl_idx)', 'shfl_idx_seg': '(as shfl_idx)',
-    'fsetp': 'FSETP.NE (ordered) becomes MSL !=, which is unordered: true with a NaN operand', 'fsetp_ftz': '(as fsetp)',
-    'f2fp_pack_bf16x2': 'F2FP.BF16.PACK_AB packs f16, not bf16', 'f2fp_pack_f16x2_relu': 'F2FP.RELU: negative results are not clamped to 0',
-    'i2f_s64': 'I2F.S64 rounds twice (the high and low words apart)',
-    'hadd2_ftz': 'HADD2 / HMUL2 .FTZ: f16 denormals are not flushed (Metal keeps them)', 'hmul2_ftz': '(as hadd2_ftz)',
-    'fmax': 'FMNMX: Ampere orders -0 below +0 (max(+0, -0) is +0); Metal returns either', 'hmax2': '(as fmax, HMNMX2)',
-    'fmax': 'FMNMX: Ampere orders -0 below +0 (max(+0, -0) is +0); Metal returns either', 'hmax2': '(as fmax, HMNMX2)',
-    'hadd2_ftz': 'HADD2 / HMUL2 / HFMA2 .FTZ: f16 denormals are not flushed (Metal keeps them)', 'hmul2_ftz': '(as hadd2_ftz)',
-    'hfma2_ftz': '(as hadd2_ftz)',
-    'hmma_16816_f32': 'HMMA.16816.F32: the f32 accumulator does not add the products as the tensor core does (about 1 ULP)',
     # the translator refuses these
     'fdiv_rn': 'FCHK (0x302) is not implemented; its slow path is a CALL.ABS into the CUDA driver (as frcp_rn)',
-    'f2i_s64': 'F2I.S64 (signed 64-bit, 0x311) is not implemented: only the unsigned truncation of an F32 is',
     'dadd': 'DADD (0x229) is not implemented', 'dmul': 'DMUL (0x228) is not implemented',
-    'hfma2': 'HFMA2.MMA (0x235) is not implemented', 'hfma2_ftz': '(as hfma2)', 'hfma2_sat': '(as hfma2)', 'hfma2_relu': '(as hfma2)',
-    'mufu_rcp': 'HFMA2.MMA with an immediate (0x435) is not implemented', 'f2f_tf32': '(as mufu_rcp)', 'idiv_u32': '(as mufu_rcp)',
-    'idiv_u32_by_7': '(as mufu_rcp)', 'irem_s32': '(as mufu_rcp)', 'fdiv_rn': '(as mufu_rcp)', 'iadd64': '(as mufu_rcp)',
-    'isub64': '(as mufu_rcp)', 'imul64': '(as mufu_rcp)', 'imul24': '(as mufu_rcp)', 'dadd': '(as mufu_rcp; then DADD)', 'dmul': '(as mufu_rcp; then DMUL)',
-    'f2i_s64': 'HFMA2.MMA with an immediate (0x435, PR #2049); its F2I.S64 matches the GPU',
-    'hmin2_nan': 'HMNMX2.NAN is not implemented', 'bmin2': 'HMNMX2.BF16_V2 is not implemented', 'bmax2_nan': '(as bmin2)',
-    'bfma2': 'HFMA2.BF16_V2 is not implemented', 'hmma_16816_bf16': 'HMMA .BF16 is not implemented', 'hmma_1688_tf32': 'HMMA .TF32 is not implemented',
-    'imma_16832_s8': 'IMMA is not implemented',
-    'i2i_s8_sat': 'I2I .SAT is not implemented', 'i2i_u16_sat': '(as i2i_s8_sat)',
-    'hmma_16816_bf16': 'HMMA .BF16 is not implemented', 'hmma_1688_tf32': 'HMMA .TF32 is not implemented',
-    'bfma2': 'HFMA2.BF16_V2 is not implemented',
-    'imma_16832_s8': 'IMMA is not implemented', 'dp4a_u32': 'IDP.4A is not implemented', 'dp4a_s32': '(as dp4a_u32)', 'dp4a_su': '(as dp4a_u32)',
-    'dp2a_lo': 'IDP.2A is not implemented', 'dp2a_hi': '(as dp2a_lo)', 'i2i_s8_sat': 'I2I .SAT is not implemented', 'i2i_u16_sat': '(as i2i_s8_sat)',
-    'isad': 'VABSDIFF is not implemented', 'iadd_sat': 'PLOP3 with .SIGN register sources (0x21f) is not implemented', 'isub_sat': '(as iadd_sat)',
-    'imma_16832_s8': 'IMMA is not implemented', 'dp4a_u32': 'IDP.4A is not implemented', 'dp4a_s32': '(as dp4a_u32)', 'dp4a_su': '(as dp4a_u32)',
-    'dp4a_u32': 'IDP.4A is not implemented', 'dp4a_s32': '(as dp4a_u32)', 'dp4a_su': '(as dp4a_u32)',
-    'dp2a_lo': 'IDP.2A is not implemented', 'dp2a_hi': '(as dp2a_lo)', 'i2i_s8_sat': 'I2I .SAT is not implemented', 'i2i_u16_sat': '(as i2i_s8_sat)',
-    'iadd_sat': 'PLOP3 with .SIGN register sources (0x21f) is not implemented', 'isub_sat': '(as iadd_sat)',
-    'dp2a_lo': 'IDP.2A is not implemented', 'dp2a_hi': '(as dp2a_lo)',
-    'isad': 'VABSDIFF is not implemented', 'iadd_sat': 'PLOP3 with .SIGN register sources (0x21f) is not implemented', 'isub_sat': '(as iadd_sat)',
-    'isad': 'VABSDIFF is not implemented',
-    'prmt': 'PRMT modes other than the index form (.F4E .B4E .RC8 .ECL .ECR .RC16) are not implemented',
     # the program calls a routine of the CUDA driver's own (CALL.ABS to a relocation the JIT resolves at load), which a game's shader never does
     'frcp_rn': 'not testable: CALL.ABS into the CUDA driver', 'fsqrt_rn': '(as frcp_rn)',
 }
 # Ops that run Metal's own approximation (MUFU, and the divisions built on it): compared and reported, never failed
 APPROX = {'mufu_ex2', 'mufu_ex2_ftz', 'mufu_lg2', 'mufu_lg2_ftz', 'mufu_rcp', 'mufu_rcp_ftz', 'mufu_rsqrt', 'mufu_rsqrt_ftz', 'mufu_sqrt', 'mufu_sqrt_ftz', 'mufu_sin',
           'mufu_cos', 'mufu_ex2_f16x2', 'fdiv_full', 'fdiv_approx',
-          # HMMA with an f16 accumulator: one block of 8 rounded once (PR #1897) matches 99.97 %; the rest are 1-2 ULP where the sum nearly cancels
-          'hmma_16816_f16', 'hmma_1688_f16',
           # MUFU.TANH is the GPU's own approximation (up to 116 ULP from tanh), Metal's is within 2; the .F16 form matches all but 3 finite halves (1 ULP)
-          'mufu_tanh', 'mufu_tanh_f16x2'}
+          'mufu_tanh', 'mufu_tanh_f16x2',
           # HMMA.16816 with an f16 accumulator in a compute shader (this test's stage) goes through simdgroup_matrix: an f32 sum of each block of 8 rounded once to f16
           # (PR #1897), 99.97 % of a Jetson Orin's outputs; the tensor core's truncating sum, which the per-thread HMMA computes, costs 23-30 times as much there
           'hmma_16816_f16'}
