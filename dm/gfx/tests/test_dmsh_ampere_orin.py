@@ -35,9 +35,6 @@ import compare  # noqa: E402
 # Ops that still differ from the GPU beyond PLATFORM: name -> why. A fix takes its ops out of here.
 KNOWN = {
     # results that differ
-    'fadd_rz': 'FADD .RZ / .RM / .RP: the rounding mode is dropped, Metal rounds to nearest', 'fadd_rm': '(as fadd_rz)', 'fadd_rp': '(as fadd_rz)',
-    'fmul_rz': 'FMUL .RZ / .RM / .RP: the rounding mode is dropped', 'fmul_rm': '(as fmul_rz)', 'fmul_rp': '(as fmul_rz)',
-    'ffma_rz': 'FFMA .RZ / .RM / .RP: the rounding mode is dropped', 'ffma_rm': '(as ffma_rz)', 'ffma_rp': '(as ffma_rz)',
     'i2f_s32_rz': 'I2FP.F32.S32.RZ rounds to nearest (PR #1800 has the fix)',
     'i2f_f16_rz': 'I2F to F16 with .RZ / .RM / .RP rounds to nearest (PR #1800 has the fix)', 'i2f_f16_rm': '(as i2f_f16_rz)', 'i2f_f16_rp': '(as i2f_f16_rz)',
     'i2f_f16_u32_rz': '(as i2f_f16_rz)', 'f2fp_pack_f16x2_rz': 'F2FP.PACK_AB.RZ rounds to nearest (PR #1800 has the fix)',
