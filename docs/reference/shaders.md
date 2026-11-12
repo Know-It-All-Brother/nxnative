@@ -1769,6 +1769,13 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
 - **Cause:** the translator had no emitter for Ampere's I2I (opcode `0x238`); `0x013`, registered as I2I, is IABS. NVIDIA's compiler emits I2I only as `I2I.<type>.S32.SAT`: the signed 32-bit source clamped to the destination's range, the type (U8, S8, U16, S16) in bits 76..77 and every other field zero, as CuAssembler's sm_75, sm_80 and sm_86 instruction lists show. The packed form I2IP (`0x239`) is a separate instruction that this doesn't cover.
 - **Fix:** `AI2i` in `InstEmitAmpereAlu.cs` clamps the source with a signed clamp to the type's limits (`clamp(as_type<int>(r), -128, 127)` for S8), so a signed result comes out sign-extended in the 32-bit register, as F2I's narrow results do. An I2I with any other field set fails to translate rather than guess its meaning.
 - **Check:** `test_dmsh_ampere_orin.py`: `i2i_s8_sat` and `i2i_u16_sat` failed to translate before, and now all 1,024 lanes of each match the Orin. Both programs mask or sign-extend the result with a PRMT or LOP3 straight after, so the fixture doesn't show what the GPU leaves in the upper bits of a narrow result.
+
+### PRMT's byte-select modes
+
+- **Symptom:** a Switch 2 shader with PRMT in one of its special modes (`.F4E`, `.B4E`, `.RC8`, `.ECL`, `.ECR`, `.RC16`) didn't translate: the translator stopped with `PRMT mode 1` (or 2 to 6) and the shader was lost.
+- **Cause:** the Ampere PRMT emitter only knew the default index mode, where each nibble of the selector picks a byte and its bit 3 repeats that byte's sign. Bits 72..74 hold the mode (Mesa NAK's `PrmtMode`: 0 index, 1 F4E, 2 B4E, 3 RC8, 4 ECL, 5 ECR, 6 RC16), and in the other modes only the selector's low 2 bits count.
+- **Fix:** `APrmt` takes byte i of the result from byte k of the 64-bit pair {c:a}, with s the selector's low 2 bits: F4E k = s + i, B4E k = (s - i) & 7, RC8 k = s, ECL k = max(s, i), ECR k = min(s, i), RC16 k = 2(s & 1) + (i & 1), and none of them repeat the sign. A constant selector folds k at translation time, as the index mode already did; both the vector (0x016) and uniform (0x096) forms use it.
+- **Check:** `test_dmsh_ampere_orin.py`'s `prmt` (all seven modes on 1,024 rows) failed to translate before and now matches the Orin in all 7,168 lanes; `prmt_imm` still matches in all 3,072.
 - **Found on:** no game; a Jetson Orin's results ([Ampere instructions checked against an Ampere GPU](#ampere-instructions-checked-against-an-ampere-gpu)).
 
 ### The NDVE movie network by the host
