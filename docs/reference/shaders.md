@@ -1776,6 +1776,13 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
 - **Cause:** the Ampere PRMT emitter only knew the default index mode, where each nibble of the selector picks a byte and its bit 3 repeats that byte's sign. Bits 72..74 hold the mode (Mesa NAK's `PrmtMode`: 0 index, 1 F4E, 2 B4E, 3 RC8, 4 ECL, 5 ECR, 6 RC16), and in the other modes only the selector's low 2 bits count.
 - **Fix:** `APrmt` takes byte i of the result from byte k of the 64-bit pair {c:a}, with s the selector's low 2 bits: F4E k = s + i, B4E k = (s - i) & 7, RC8 k = s, ECL k = max(s, i), ECR k = min(s, i), RC16 k = 2(s & 1) + (i & 1), and none of them repeat the sign. A constant selector folds k at translation time, as the index mode already did; both the vector (0x016) and uniform (0x096) forms use it.
 - **Check:** `test_dmsh_ampere_orin.py`'s `prmt` (all seven modes on 1,024 rows) failed to translate before and now matches the Orin in all 7,168 lanes; `prmt_imm` still matches in all 3,072.
+
+### IMMA, the 8-bit integer matrix multiply
+
+- **Symptom:** a Switch 2 shader with an IMMA (PTX `mma.sync` with 8-bit integer sources and a 32-bit accumulator, such as `IMMA.16832.S8.S8`) didn't build: the translator stopped with "Ampere instruction 237".
+- **Cause:** the translator had HMMA, the half-precision matrix multiply, but not its integer twin, opcode 0x237.
+- **Fix:** `InstEmitAmpereTensor.cs` translates IMMA per thread the way it does HMMA: each lane fetches the bytes of A and B it needs from the lanes that hold them with subgroup shuffles, in the layouts PTX documents for m16n8k32, m16n8k16 and m8n8k16, and sums the products onto C in 32-bit integers that wrap, or clamp with `.SAT`. Signed or unsigned bytes come from bits 76 (A) and 78 (B), the shape from bits 75 and 85..86 (Mesa NAK's `OpImma`). The 4-bit shapes still stop the translator. It's exact integer arithmetic, so the result matches the GPU's bit for bit. For m16n8k32 it costs each lane 32 shuffles, 128 byte extracts, 128 multiplies and 128 adds.
+- **Check:** `test_dmsh_ampere_orin.py`'s `imma_16832_s8` went from not translating (all 4,096 output words of 1,024 rows) to 0 differing words. Only m16n8k32 with signed bytes is in the fixture; m16n8k16, m8n8k16, unsigned bytes and `.SAT` share the code but aren't checked against a GPU.
 - **Found on:** no game; a Jetson Orin's results ([Ampere instructions checked against an Ampere GPU](#ampere-instructions-checked-against-an-ampere-gpu)).
 
 ### The NDVE movie network by the host
