@@ -754,16 +754,20 @@ namespace Ryujinx.Graphics.Shader.Instructions
         // ---- packed halves ----
 
         // A half-pair operand's two lanes after its swizzle (0 as is, 1 .F32: the 32-bit float itself in both lanes, 2 low twice, 3 high twice), abs / neg applied.
-        // A constant has its swizzle too (bits 60..61 in the 32 slot, nvdisasm: c[0x0] [0x168].H0_H0); only an immediate has none (those bits are its own)
-        private static Operand[] AHalfLanes(EmitterContext context, ASrc s, int swizzle)
+        // A constant has its swizzle too (bits 60..61 in the 32 slot, nvdisasm: c[0x0] [0x168].H0_H0); only an immediate has none (those bits are its own).
+        // A bf16 lane (.BF16_V2) is the high half of an f32, so it unpacks to that f32 with a shift (the low lane) or a mask (the high one)
+        private static Operand[] AHalfLanes(EmitterContext context, ASrc s, int swizzle, bool bf16 = false)
         {
             Operand v = AGet(context, s);
             Operand lo, hi;
 
+            Operand Low() => bf16 ? context.ShiftLeft(v, Const(16)) : context.UnpackHalf2x16Low(v);
+            Operand High() => bf16 ? context.BitwiseAnd(v, Const(unchecked((int)0xffff0000))) : context.UnpackHalf2x16High(v);
+
             if (s.Kind == AKind.Imm || swizzle == 0)
             {
-                lo = context.UnpackHalf2x16Low(v);
-                hi = context.UnpackHalf2x16High(v);
+                lo = Low();
+                hi = High();
             }
             else if (swizzle == 1)
             {
@@ -771,18 +775,18 @@ namespace Ryujinx.Graphics.Shader.Instructions
             }
             else if (swizzle == 3)
             {
-                lo = hi = context.UnpackHalf2x16High(v);
+                lo = hi = High();
             }
             else
             {
-                lo = hi = context.UnpackHalf2x16Low(v);
+                lo = hi = Low();
             }
 
             return [context.FPAbsNeg(lo, s.Abs, s.Neg), context.FPAbsNeg(hi, s.Abs, s.Neg)];
         }
 
         // The swizzle fields: A 74..76, B (in the 32 slot) 60..62, C (in the 64 slot) 81..83. Half-pair ops keep A's abs / neg at 73 / 72, C's at 83 / 84.
-        private static (Operand[] A, Operand[] B, Operand[] C) AHalfSrcs(EmitterContext context, AmpereOp x)
+        private static (Operand[] A, Operand[] B, Operand[] C) AHalfSrcs(EmitterContext context, AmpereOp x, bool bf16 = false)
         {
             (ASrc a, ASrc b, ASrc c) = AAluSrcs(context, x, abs: false, neg: false);
 
@@ -794,18 +798,18 @@ namespace Ryujinx.Graphics.Shader.Instructions
             slot32 = slot32.Kind == AKind.Imm ? slot32 : slot32.WithMods(x.Bit(63), x.Bit(62));
             slot64 = slot64.WithMods(x.Bit(84), x.Bit(83));
 
-            Operand[] ha = AHalfLanes(context, a, x.Bits(74, 76));
-            Operand[] h32 = AHalfLanes(context, slot32, x.Bits(60, 62));
-            Operand[] h64 = AHalfLanes(context, slot64, x.Bits(81, 83));
+            Operand[] ha = AHalfLanes(context, a, x.Bits(74, 76), bf16);
+            Operand[] h32 = AHalfLanes(context, slot32, x.Bits(60, 62), bf16);
+            Operand[] h64 = AHalfLanes(context, slot64, x.Bits(81, 83), bf16);
 
             return bIn32 ? (ha, h32, h64) : (ha, h64, h32);
         }
 
         // The sources of a two-source half-pair operation, as ASecond: the second is B in forms 1, 4, 5, 6 and C in forms 2, 3, 7, where B would be the unused register field at 64.
         // Pokemon Pokopia's bilateral blur steps its loop with HADD2 Rd, Rd, imm: reading that field instead stepped by the bits of whatever R0 held, and hung the GPU
-        private static (Operand[] A, Operand[] B) AHalfSecond(EmitterContext context, AmpereOp x)
+        private static (Operand[] A, Operand[] B) AHalfSecond(EmitterContext context, AmpereOp x, bool bf16 = false)
         {
-            (Operand[] a, Operand[] b, Operand[] c) = AHalfSrcs(context, x);
+            (Operand[] a, Operand[] b, Operand[] c) = AHalfSrcs(context, x, bf16);
 
             return (a, x.Form is 1 or 4 or 5 or 6 ? b : c);
         }
@@ -840,15 +844,22 @@ namespace Ryujinx.Graphics.Shader.Instructions
         }
 
         // The result: two halves packed, or with .F32 (78) the low lane as one float. HFMA2 / HFMA2.MMA / HMUL2 (sm_86): .RELU (79) clamps at zero but keeps a NaN result
-        // (PTX: a NaN result becomes the canonical NaN; a plain max with zero gave 0 for it); .BF16_V2 (85) is not handled. .FTZ (80) flushes a subnormal result lane to a zero of its sign after rounding to half, as the Orin does (HMUL2.FTZ of 0x3555 and 0x8608 is -0, not 0x8203);
-        // the .F32 result is a float, whose subnormals Metal flushes itself
+        // (PTX: a NaN result becomes the canonical NaN; a plain max with zero gave 0 for it). .FTZ (80) flushes a subnormal result lane to a zero of its sign after rounding to half, as
+        // the Orin does (HMUL2.FTZ of 0x3555 and 0x8608 is -0, not 0x8203); the .F32 result is a float, whose subnormals Metal flushes itself. With .BF16_V2 (85) the lanes are f32s
+        // (AHalfLanes) rounded to bf16 (ABf16); .FTZ with it is not checked against a GPU (AHalfFlush's bound is the f16 one), so that form fails
         private static void AHalfResult(EmitterContext context, AmpereOp x, Operand lo, Operand hi)
         {
             bool sat = x.Bit(77);
 
-            if (x.Bit(85))
+            // HADD2 / HMUL2 .BF16_V2 (PTX add / mul .bf16x2 need sm_90) are not checked against a GPU
+            if (x.Bit(85) && (x.Opcode & 0x1ff) != 0x031)
             {
-                throw AFail(context, "BF16 half pair");
+                throw AFail(context, "BF16 half pair outside HFMA2");
+            }
+
+            if (x.Bit(85) && x.Bit(80))
+            {
+                throw AFail(context, "BF16 half pair with .FTZ");
             }
 
             if (x.Bit(79) && (x.Opcode & 0x1ff) is 0x031 or 0x032 or 0x035)
@@ -863,7 +874,16 @@ namespace Ryujinx.Graphics.Shader.Instructions
                 return;
             }
 
-            Operand res = context.PackHalf2x16(context.FPSaturate(lo, sat), context.FPSaturate(hi, sat));
+            lo = context.FPSaturate(lo, sat);
+            hi = context.FPSaturate(hi, sat);
+
+            if (x.Bit(85))
+            {
+                ASet(context, x, context.BitwiseOr(ABf16(context, lo), context.ShiftLeft(ABf16(context, hi), Const(16))));
+                return;
+            }
+
+            Operand res = context.PackHalf2x16(lo, hi);
 
             if (x.Bit(80))
             {
@@ -875,6 +895,18 @@ namespace Ryujinx.Graphics.Shader.Instructions
             }
 
             ASet(context, x, res);
+        }
+
+        // An f32 rounded to the nearest bf16, ties to even, in integer arithmetic (Metal has no bf16 conversion that rounds, and fast math may not keep a float one exact):
+        // add 0x7fff plus the lowest kept bit, keep the high 16 bits. A NaN is 0x7fff, the Orin's bf16 NaN; an f32 past the largest bf16 rounds to infinity there too.
+        // The f32 the lane was computed in was itself rounded, so an FMA rounds twice: exact ties at bf16 are rare, and none of the Orin's 1,024 bfma2 rows hit one
+        private static Operand ABf16(EmitterContext context, Operand f)
+        {
+            Operand even = context.BitwiseAnd(context.ShiftRightU32(f, Const(16)), Const(1));
+            Operand rounded = context.ShiftRightU32(context.IAdd(f, context.IAdd(Const(0x7fff), even)), Const(16));
+            Operand nan = context.ICompareGreaterUnsigned(context.BitwiseAnd(f, Const(0x7fffffff)), Const(0x7f800000));
+
+            return context.ConditionalSelect(nan, Const(0x7fff), rounded);
         }
 
         public static void AHadd2(EmitterContext context)
@@ -896,7 +928,7 @@ namespace Ryujinx.Graphics.Shader.Instructions
         public static void AHfma2(EmitterContext context)
         {
             AmpereOp x = new(context.CurrOp);
-            (Operand[] a, Operand[] b, Operand[] c) = AHalfSrcs(context, x);
+            (Operand[] a, Operand[] b, Operand[] c) = AHalfSrcs(context, x, x.Bit(85));
 
             if (x.Bit(80))
             {
