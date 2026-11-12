@@ -86,6 +86,9 @@ APPROX = {'mufu_ex2', 'mufu_ex2_ftz', 'mufu_lg2', 'mufu_lg2_ftz', 'mufu_rcp', 'm
           'hmma_16816_f16', 'hmma_1688_f16',
           # MUFU.TANH is the GPU's own approximation (up to 116 ULP from tanh), Metal's is within 2; the .F16 form matches all but 3 finite halves (1 ULP)
           'mufu_tanh', 'mufu_tanh_f16x2'}
+          # HMMA.16816 with an f16 accumulator in a compute shader (this test's stage) goes through simdgroup_matrix: an f32 sum of each block of 8 rounded once to f16
+          # (PR #1897), 99.97 % of a Jetson Orin's outputs; the tensor core's truncating sum, which the per-thread HMMA computes, costs 23-30 times as much there
+          'hmma_16816_f16'}
 
 MAC_METAL = ['xcrun', '-sdk', 'macosx', 'metal', '-c', '-O1', '-fpreserve-invariance', '-fwrapv']   # dmsh_build.py MAC_METAL
 
