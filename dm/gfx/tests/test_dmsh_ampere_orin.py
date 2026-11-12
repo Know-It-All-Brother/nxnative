@@ -44,6 +44,7 @@ KNOWN = {
     'shfl_up_clamp': 'SHFL.UP ignores a non-zero clamp (PR #1800 has the fix)',
     'fmax_nan': 'FMNMX.NAN: a NaN operand gives the other operand, not NaN (PR #1800 has the fix)', 'fmin_nan': '(as fmax_nan)',
     'shfl_idx': 'SHFL: a lane in a register is not masked to its low 5 bits', 'shfl_bfly': '(as shfl_idx)', 'shfl_idx_seg': '(as shfl_idx)',
+    'fsetp': 'FSETP.NE (ordered) becomes MSL !=, which is unordered: true with a NaN operand', 'fsetp_ftz': '(as fsetp)',
     'f2fp_pack_bf16x2': 'F2FP.BF16.PACK_AB packs f16, not bf16', 'f2fp_pack_f16x2_relu': 'F2FP.RELU: negative results are not clamped to 0',
     'i2f_s64': 'I2F.S64 rounds twice (the high and low words apart)',
     'fmax': 'FMNMX: Ampere orders -0 below +0 (max(+0, -0) is +0); Metal returns either', 'hmax2': '(as fmax, HMNMX2)',
