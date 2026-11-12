@@ -1762,6 +1762,13 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
 - **Cause:** the GPU compiler turns `sad.u32` into `VABSDIFF.U32 Rd, a, b, c` (opcode 0x214), and the Ampere opcode table had no entry for VABSDIFF in any form.
 - **Fix:** `InstEmitAmpereAlu.cs` emits it as `max(a, b) - min(a, b) + c` wrapping at 32 bits, comparing a and b unsigned when bit 73 is clear (`.U32`, as IMNMX) and signed when it's set, and registers it for every ALU form (0x?14: register, immediate, constant buffer and uniform register), whose operands the shared reader takes. A predicate output other than PT or any other modifier bit fails the translation, since we haven't seen one. It costs one `min`, one `max`, a subtraction and an add.
 - **Check:** `test_dmsh_ampere_orin.py`'s `isad` (`sad.u32`): translation failed before, 0 of 1,024 lanes differ now.
+
+### I2I clamps an integer to a narrower type
+
+- **Symptom:** a Switch 2 shader with a saturating integer narrowing (PTX `cvt.sat.s8.s32`, `cvt.sat.u16.s32`) fails to translate: `Ampere instruction 238 ... is not implemented`.
+- **Cause:** the translator had no emitter for Ampere's I2I (opcode `0x238`); `0x013`, registered as I2I, is IABS. NVIDIA's compiler emits I2I only as `I2I.<type>.S32.SAT`: the signed 32-bit source clamped to the destination's range, the type (U8, S8, U16, S16) in bits 76..77 and every other field zero, as CuAssembler's sm_75, sm_80 and sm_86 instruction lists show. The packed form I2IP (`0x239`) is a separate instruction that this doesn't cover.
+- **Fix:** `AI2i` in `InstEmitAmpereAlu.cs` clamps the source with a signed clamp to the type's limits (`clamp(as_type<int>(r), -128, 127)` for S8), so a signed result comes out sign-extended in the 32-bit register, as F2I's narrow results do. An I2I with any other field set fails to translate rather than guess its meaning.
+- **Check:** `test_dmsh_ampere_orin.py`: `i2i_s8_sat` and `i2i_u16_sat` failed to translate before, and now all 1,024 lanes of each match the Orin. Both programs mask or sign-extend the result with a PRMT or LOP3 straight after, so the fixture doesn't show what the GPU leaves in the upper bits of a narrow result.
 - **Found on:** no game; a Jetson Orin's results ([Ampere instructions checked against an Ampere GPU](#ampere-instructions-checked-against-an-ampere-gpu)).
 
 ### The NDVE movie network by the host
