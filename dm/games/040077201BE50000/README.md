@@ -29,7 +29,7 @@ There is no game-specific patch, and only v458752's build row: the base game, v0
 
 The 3D renders at 1536x864, with the swap chain 2560x1440 and the window crop 1920x1080: shots of the swap chain hold the picture in their top-left three quarters. Lessons play a short movie of the real game, which is a reference for how a scene should look.
 
-Moving objects get their ambient light from eight values per object in a storage buffer (record size 128 bytes, the object's index at +460 of its 480-byte record), which the compute shader `f59db619b5c0be33` works out each frame from probe atlases named in c[4]; the vertex shader `c564233f7917accc` mixes them with a 12x12 RGBA32F cube. Before [the table of handles](../../../docs/reference/shaders.md#a-table-of-handles-longer-than-the-array), most objects' values were black: Kirby was dark red and black underneath, and the ground and props were darker across the course. The far shadow (`WFarShadow`, 4096, 2048 or 1024 square by scene, all three textures on one storage address) is drawn when a scene loads, then its mips by copies level to level; the map in the lesson is the same with and without `render_cond`.
+Moving objects get their ambient light from eight values per object in a storage buffer (record size 128 bytes, the object's index at +460 of its 480-byte record), which the compute shader `f59db619b5c0be33` works out each frame from probe atlases named in c[4]; the vertex shader `c564233f7917accc` mixes them with a 12x12 RGBA32F cube. Before [the table of handles](../../../docs/reference/shaders.md#a-table-of-handles-longer-than-the-array), most objects' values were black: Kirby was dark red and black underneath, and the ground and props were darker across the course. The far shadow (`WFarShadow`, 4096, 2048 or 1024 square by scene, all three textures on one storage address) is drawn when a scene loads, then its mips by copies level to level; the map in the lesson is the same with render conditions evaluated or drawn unconditionally.
 
 ## Driving it on the Mac
 
@@ -37,6 +37,7 @@ Moving objects get their ambient light from eight values per object in a storage
 
 ## Found on this game
 
+- [Compute dispatches that wait for each other](../../../docs/reference/frame-rate.md#compute-dispatches-that-wait-for-each-other): its particle systems.
 - [PMAP records in phx's PDAT archives](../../../docs/reference/shaders.md#pmap-records-in-phxs-pdat-archives): its shaders, and a loose NDSR file.
 - [A guard band cull in every vertex shader (0x80d)](../../../docs/reference/shaders.md#a-guard-band-cull-in-every-vertex-shader-0x80d).
 - [Ampere forms with a handle in a register](../../../docs/reference/shaders.md#ampere-forms-with-a-handle-in-a-register-and-sureds-other-operations): TMML (0xf69, 0x36a) in 4,776 pixel shaders.
