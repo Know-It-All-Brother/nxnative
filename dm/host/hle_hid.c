@@ -244,7 +244,6 @@ static void *ctl_main(void *arg) {
                 if (!strncmp(line, "atrace ", 7)) { void probe_atrace(uint64_t lo, uint64_t n); char *e2; uint64_t a = strtoull(line + 7, &e2, 16); probe_atrace(a, strtoull(e2, NULL, 0)); continue; }   // probe.c
                 if (!strncmp(line, "program ", 8)) { void dm_oe_execute(int index, const void *param, size_t n); LOG("DM_CTL: oe::ExecuteProgram(%d)", atoi(line + 8)); dm_oe_execute(atoi(line + 8), NULL, 0); continue; }
                 if (!strncmp(line, "webshot ", 8)) { void front_web_shot(const char *path); front_web_shot(line + 8); continue; }
-                if (!strncmp(line, "rscale ", 7)) { extern uint8_t *dm_fps_state; float f = strtof(line + 7, NULL); if (dm_fps_state && f > 0) { memcpy(dm_fps_state + 0x10, &f, 4); LOG("DM_CTL: render scale %.4f (state +0x10, as DM_RENDER_SCALE)", f); } else LOG("[RED] DM_CTL: rscale needs a frame step state page and a scale above 0"); continue; }   // TEST
                 if (!strncmp(line, "shot ", 5)) { dm_gfx_shot_at(1, line + 5); LOG("DM_CTL: screenshot of the next frame → %s", line + 5); continue; }
                 if (!strncmp(line, "texlist ", 8)) { void dm_gfx_texlist(int target); dm_gfx_texlist(atoi(line + 8)); continue; }
                 if (!strcmp(line, "restop")) { void dm_gfx_restop(void); dm_gfx_restop(); continue; }   // what the residency set holds (nvn_mtl.m res_top)
